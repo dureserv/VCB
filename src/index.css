@@ -33,14 +33,6 @@ body {
   .badge {
     @apply inline-flex items-center gap-2 rounded-full border px-2.5 py-1 text-[11px] font-semibold tracking-[0.08em] uppercase;
   }
-
-  .nav-item {
-    @apply flex items-center gap-3 rounded-xl border border-transparent px-3 py-2 text-sm text-slate-300 transition hover:border-slate-700 hover:bg-slate-800/70 hover:text-white;
-  }
-
-  .nav-item.active {
-    @apply border-accent-500/30 bg-accent-500/10 text-accent-100;
-  }
 }
 
 ::-webkit-scrollbar {
