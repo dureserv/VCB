@@ -13,11 +13,11 @@ const ALLOWED_ROLES = ['admin', 'manager', 'technician', 'viewer']
 const ROLE_PERMISSIONS = {
   admin: {
     pages: ['dashboard', 'clients', 'installations', 'admin'],
-    actions: ['create_user', 'create_type', 'reveal_code']
+    actions: ['create_user', 'create_type', 'create_client', 'reveal_code']
   },
   manager: {
     pages: ['dashboard', 'clients', 'installations'],
-    actions: ['reveal_code']
+    actions: ['create_client', 'reveal_code']
   },
   technician: {
     pages: ['dashboard', 'clients', 'installations'],
@@ -270,6 +270,7 @@ function normalizeDatabase(rawData) {
   }))
 
   next.installationTypes = { ...defaultInstallationTypes, ...(next.installationTypes || {}) }
+  next.clients = Array.isArray(next.clients) ? next.clients : []
   return next
 }
 
@@ -486,6 +487,35 @@ app.get('/api/overview', authMiddleware, (req, res) => {
 app.get('/api/clients', authMiddleware, (req, res) => {
   const db = readDatabase()
   return res.json(db.clients)
+})
+
+app.post('/api/clients', authMiddleware, requirePermission('create_client'), (req, res) => {
+  const { name = '', contact = '' } = req.body || {}
+  const db = readDatabase()
+
+  const cleanName = String(name).trim()
+  const cleanContact = String(contact).trim()
+
+  if (!cleanName) {
+    return res.status(400).json({ message: 'Client name is required.' })
+  }
+
+  const duplicate = db.clients.some((client) => client.name.toLowerCase() === cleanName.toLowerCase())
+  if (duplicate) {
+    return res.status(409).json({ message: 'A client with that name already exists.' })
+  }
+
+  const newClient = {
+    id: `client-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    name: cleanName,
+    contact: cleanContact,
+    sites: []
+  }
+
+  db.clients.push(newClient)
+  writeDatabase(db)
+
+  return res.status(201).json({ client: newClient })
 })
 
 app.get('/api/types', authMiddleware, (req, res) => {
