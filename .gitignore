@@ -148,5 +148,4 @@ vite.config.ts.timestamp-*
 # Turbo Repo
 .turbo
 package-lock.json
-data/db.json
-data/db.json
+/data
