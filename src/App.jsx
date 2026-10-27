@@ -17,6 +17,7 @@ const PAGE_PERMISSIONS = {
 const ACTION_PERMISSIONS = {
   create_user: ['admin'],
   create_type: ['admin'],
+  create_client: ['admin', 'manager'],
   reveal_code: ['admin', 'manager', 'technician']
 }
 
@@ -258,14 +259,55 @@ function DashboardPage({ overview, clients }) {
 
 function ClientsPage({ clients, setClients, installationTypes, role }) {
   const [selectedClientId, setSelectedClientId] = useState(clients[0]?.id || '')
+  const [clientForm, setClientForm] = useState({ name: '', contact: '' })
+  const [clientMessage, setClientMessage] = useState('')
+  const [clientError, setClientError] = useState('')
+  const [isSavingClient, setIsSavingClient] = useState(false)
   const selectedClient = clients.find((item) => item.id === selectedClientId) || clients[0]
-  const canCreateType = canPerform(role, 'create_type')
+  const canCreateClient = canPerform(role, 'create_client')
 
   useEffect(() => {
     if (clients.length && !selectedClientId) {
       setSelectedClientId(clients[0].id)
     }
   }, [clients, selectedClientId])
+
+  const handleAddClient = async (event) => {
+    event.preventDefault()
+    setClientError('')
+    setClientMessage('')
+
+    if (!canCreateClient) {
+      setClientError('You do not have permission to add clients.')
+      return
+    }
+
+    const name = clientForm.name.trim()
+    const contact = clientForm.contact.trim()
+
+    if (!name) {
+      setClientError('Client name is required.')
+      return
+    }
+
+    setIsSavingClient(true)
+
+    try {
+      const response = await apiRequest('/clients', {
+        method: 'POST',
+        body: JSON.stringify({ name, contact })
+      })
+
+      setClients((state) => [response.client, ...state])
+      setSelectedClientId(response.client.id)
+      setClientForm({ name: '', contact: '' })
+      setClientMessage('Client added successfully.')
+    } catch (err) {
+      setClientError(err.message)
+    } finally {
+      setIsSavingClient(false)
+    }
+  }
 
   if (!clients.length) return <Loader label="Loading clients" />
 
@@ -277,13 +319,57 @@ function ClientsPage({ clients, setClients, installationTypes, role }) {
             <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Portfolio</p>
             <h2 className="mt-2 text-2xl font-semibold text-white">Clients & sites</h2>
           </div>
-          {canCreateType ? (
-            <Link to="/admin" className="rounded-xl bg-accent-600 px-3 py-2 text-sm font-medium text-white">
-              Manage inventory
-            </Link>
+          {canCreateClient ? (
+            <span className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200">
+              Client access enabled
+            </span>
           ) : null}
         </div>
       </div>
+
+      {canCreateClient ? (
+        <form onSubmit={handleAddClient} className="panel space-y-4 p-5">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Quick add</p>
+              <h3 className="mt-2 text-xl font-semibold text-white">Add a new client</h3>
+            </div>
+          </div>
+
+          <div className="grid gap-4 md:grid-cols-[1.2fr_1fr_auto]">
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-[0.12em] text-slate-400">Client name</label>
+              <input
+                value={clientForm.name}
+                onChange={(event) => setClientForm((state) => ({ ...state, name: event.target.value }))}
+                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
+                placeholder="Northwind Properties"
+              />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs uppercase tracking-[0.12em] text-slate-400">Primary contact</label>
+              <input
+                value={clientForm.contact}
+                onChange={(event) => setClientForm((state) => ({ ...state, contact: event.target.value }))}
+                className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
+                placeholder="A. Smith"
+              />
+            </div>
+
+            <button
+              type="submit"
+              disabled={isSavingClient}
+              className="self-end rounded-xl bg-accent-600 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSavingClient ? 'Saving...' : 'Add client'}
+            </button>
+          </div>
+
+          {clientMessage ? <p className="text-sm text-emerald-300">{clientMessage}</p> : null}
+          {clientError ? <p className="text-sm text-red-300">{clientError}</p> : null}
+        </form>
+      ) : null}
 
       <div className="grid gap-6 xl:grid-cols-[320px_minmax(0,1fr)]">
         <aside className="panel p-4">
@@ -461,7 +547,7 @@ function InstallationsPage({ installations, installationTypes, role }) {
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                {[{ label: 'Installer Code', value: selected.installerCode }, { label: 'Master Code', value: selected.masterCode }].map((code) => (
+                [{ label: 'Installer Code', value: selected.installerCode }, { label: 'Master Code', value: selected.masterCode }].map((code) => (
                   <div key={code.label} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs uppercase tracking-[0.12em] text-slate-400">{code.label}</p>
