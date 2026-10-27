@@ -387,6 +387,80 @@ app.post('/api/users', authMiddleware, requirePermission('create_user'), (req, r
   })
 })
 
+app.patch('/api/users/:id', authMiddleware, requirePermission('create_user'), (req, res) => {
+  const { id } = req.params
+  const { name, email, password, role } = req.body || {}
+  const db = readDatabase()
+  const userIndex = db.users.findIndex((user) => user.id === id)
+
+  if (userIndex === -1) {
+    return res.status(404).json({ message: 'User not found.' })
+  }
+
+  const user = db.users[userIndex]
+  const nextName = String(name ?? user.name).trim()
+  const nextEmail = String(email ?? user.email).trim().toLowerCase()
+  const nextRole = String(role ?? user.role).trim().toLowerCase()
+
+  if (!nextName || !nextEmail) {
+    return res.status(400).json({ message: 'Name and email are required.' })
+  }
+
+  if (!ALLOWED_ROLES.includes(nextRole)) {
+    return res.status(400).json({ message: `Role must be one of: ${ALLOWED_ROLES.join(', ')}` })
+  }
+
+  const duplicate = db.users.some((existing) => existing.id !== id && existing.email.toLowerCase() === nextEmail)
+  if (duplicate) {
+    return res.status(409).json({ message: 'A user with that email already exists.' })
+  }
+
+  db.users[userIndex] = {
+    ...user,
+    name: nextName,
+    email: nextEmail,
+    role: nextRole,
+    password: password && String(password).trim() ? bcrypt.hashSync(String(password).trim(), 10) : user.password
+  }
+
+  writeDatabase(db)
+
+  return res.json({
+    user: {
+      id: db.users[userIndex].id,
+      name: db.users[userIndex].name,
+      email: db.users[userIndex].email,
+      role: db.users[userIndex].role
+    }
+  })
+})
+
+app.delete('/api/users/:id', authMiddleware, requirePermission('create_user'), (req, res) => {
+  const { id } = req.params
+  const db = readDatabase()
+  const userIndex = db.users.findIndex((user) => user.id === id)
+
+  if (userIndex === -1) {
+    return res.status(404).json({ message: 'User not found.' })
+  }
+
+  const user = db.users[userIndex]
+
+  if (user.id === req.user.sub) {
+    return res.status(400).json({ message: 'You cannot delete your own account.' })
+  }
+
+  const adminCount = db.users.filter((item) => item.role === 'admin').length
+  if (user.role === 'admin' && adminCount <= 1) {
+    return res.status(400).json({ message: 'At least one admin account must remain.' })
+  }
+
+  db.users.splice(userIndex, 1)
+  writeDatabase(db)
+
+  return res.json({ ok: true, deletedUserId: id })
+})
+
 app.get('/api/overview', authMiddleware, (req, res) => {
   const db = readDatabase()
   const alerts = db.clients.flatMap((client) =>

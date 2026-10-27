@@ -502,6 +502,7 @@ function InstallationsPage({ installations, installationTypes, role }) {
 function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, authUser }) {
   const [form, setForm] = useState({ label: '', fields: '' })
   const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'technician' })
+  const [editingUserId, setEditingUserId] = useState(null)
   const [message, setMessage] = useState('')
   const [userMessage, setUserMessage] = useState('')
   const [error, setError] = useState('')
@@ -536,33 +537,99 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
     }
   }
 
-  const handleCreateUser = async (event) => {
+  const handleUserSubmit = async (event) => {
     event.preventDefault()
     setUserError('')
     setUserMessage('')
 
     if (!canCreateUser) {
-      setUserError('You do not have permission to create users.')
+      setUserError('You do not have permission to manage users.')
       return
     }
 
     try {
-      const response = await apiRequest('/users', {
-        method: 'POST',
-        body: JSON.stringify({
-          name: userForm.name,
-          email: userForm.email,
-          password: userForm.password,
-          role: userForm.role
-        })
-      })
+      const payload = {
+        name: userForm.name,
+        email: userForm.email,
+        role: userForm.role
+      }
 
-      setUsers((state) => [response.user, ...state])
+      if (userForm.password) {
+        payload.password = userForm.password
+      }
+
+      const response = editingUserId
+        ? await apiRequest(`/users/${editingUserId}`, {
+            method: 'PATCH',
+            body: JSON.stringify(payload)
+          })
+        : await apiRequest('/users', {
+            method: 'POST',
+            body: JSON.stringify({
+              ...payload,
+              password: userForm.password
+            })
+          })
+
+      if (editingUserId) {
+        setUsers((state) => state.map((user) => user.id === editingUserId ? { ...user, ...response.user } : user))
+        setUserMessage('User updated successfully.')
+      } else {
+        setUsers((state) => [response.user, ...state])
+        setUserMessage(`User created successfully with the ${response.user.role} role.`)
+      }
+
       setUserForm({ name: '', email: '', password: '', role: 'technician' })
-      setUserMessage(`User created successfully with the ${response.user.role} role.`)
+      setEditingUserId(null)
     } catch (err) {
       setUserError(err.message)
     }
+  }
+
+  const handleDeleteUser = async (userId) => {
+    if (!canCreateUser) {
+      setUserError('You do not have permission to manage users.')
+      return
+    }
+
+    const target = users.find((user) => user.id === userId)
+    if (!target) return
+
+    if (!window.confirm(`Delete user ${target.name}?`)) {
+      return
+    }
+
+    try {
+      await apiRequest(`/users/${userId}`, {
+        method: 'DELETE'
+      })
+
+      setUsers((state) => state.filter((user) => user.id !== userId))
+      if (editingUserId === userId) {
+        setEditingUserId(null)
+        setUserForm({ name: '', email: '', password: '', role: 'technician' })
+      }
+      setUserMessage('User deleted successfully.')
+    } catch (err) {
+      setUserError(err.message)
+    }
+  }
+
+  const startEditUser = (user) => {
+    setEditingUserId(user.id)
+    setUserForm({
+      name: user.name,
+      email: user.email,
+      password: '',
+      role: user.role
+    })
+    setUserError('')
+    setUserMessage('')
+  }
+
+  const cancelEditUser = () => {
+    setEditingUserId(null)
+    setUserForm({ name: '', email: '', password: '', role: 'technician' })
   }
 
   return (
@@ -623,7 +690,7 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
           <h3 className="mb-4 text-lg font-semibold text-white">User management</h3>
 
           <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
-            <form onSubmit={handleCreateUser} className="space-y-4">
+            <form onSubmit={handleUserSubmit} className="space-y-4">
               <div>
                 <label className="mb-1 block text-xs uppercase tracking-[0.12em] text-slate-400">Full name</label>
                 <input
@@ -654,8 +721,7 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
                   value={userForm.password}
                   onChange={(event) => setUserForm((state) => ({ ...state, password: event.target.value }))}
                   className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
-                  placeholder="Secure password"
-                  required
+                  placeholder={editingUserId ? 'Leave blank to keep current password' : 'Secure password'}
                 />
               </div>
 
@@ -672,12 +738,19 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
                 </select>
               </div>
 
+              <div className="flex gap-3">
+                <button type="submit" className="rounded-xl bg-accent-600 px-4 py-3 text-sm font-medium text-white">
+                  {editingUserId ? 'Save changes' : 'Create user'}
+                </button>
+                {editingUserId ? (
+                  <button type="button" onClick={cancelEditUser} className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-medium text-white">
+                    Cancel
+                  </button>
+                ) : null}
+              </div>
+
               {userMessage ? <p className="text-sm text-emerald-300">{userMessage}</p> : null}
               {userError ? <p className="text-sm text-red-300">{userError}</p> : null}
-
-              <button type="submit" className="rounded-xl bg-accent-600 px-4 py-3 text-sm font-medium text-white">
-                Create user
-              </button>
             </form>
 
             <div>
@@ -693,6 +766,14 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
                       <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-300">
                         {user.role}
                       </span>
+                    </div>
+                    <div className="mt-3 flex gap-2">
+                      <button type="button" onClick={() => startEditUser(user)} className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-200">
+                        Edit
+                      </button>
+                      <button type="button" onClick={() => handleDeleteUser(user.id)} className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-red-200">
+                        Delete
+                      </button>
                     </div>
                   </div>
                 )) : (
