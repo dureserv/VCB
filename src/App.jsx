@@ -6,6 +6,7 @@ const DEFAULT_LOGIN = {
   email: 'admin@fieldsafe.local',
   password: 'password123'
 }
+const ROLE_OPTIONS = ['admin', 'manager', 'technician', 'viewer']
 
 async function apiRequest(path, options = {}) {
   const token = localStorage.getItem('fieldsafe_token')
@@ -484,10 +485,13 @@ function InstallationsPage({ installations, installationTypes }) {
   )
 }
 
-function AdminPage({ installationTypes, setInstallationTypes }) {
+function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, authUser }) {
   const [form, setForm] = useState({ label: '', fields: '' })
+  const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'technician' })
   const [message, setMessage] = useState('')
+  const [userMessage, setUserMessage] = useState('')
   const [error, setError] = useState('')
+  const [userError, setUserError] = useState('')
 
   const handleSubmit = async (event) => {
     event.preventDefault()
@@ -510,6 +514,32 @@ function AdminPage({ installationTypes, setInstallationTypes }) {
       setError(err.message)
     }
   }
+
+  const handleCreateUser = async (event) => {
+    event.preventDefault()
+    setUserError('')
+    setUserMessage('')
+
+    try {
+      const response = await apiRequest('/users', {
+        method: 'POST',
+        body: JSON.stringify({
+          name: userForm.name,
+          email: userForm.email,
+          password: userForm.password,
+          role: userForm.role
+        })
+      })
+
+      setUsers((state) => [response.user, ...state])
+      setUserForm({ name: '', email: '', password: '', role: 'technician' })
+      setUserMessage(`User created successfully with the ${response.user.role} role.`)
+    } catch (err) {
+      setUserError(err.message)
+    }
+  }
+
+  const isAdmin = authUser?.role === 'admin'
 
   return (
     <div className="space-y-6">
@@ -561,6 +591,92 @@ function AdminPage({ installationTypes, setInstallationTypes }) {
           </div>
         </div>
       </div>
+
+      {isAdmin ? (
+        <div className="panel p-5">
+          <h3 className="mb-4 text-lg font-semibold text-white">User management</h3>
+
+          <div className="grid gap-6 lg:grid-cols-[1fr_0.9fr]">
+            <form onSubmit={handleCreateUser} className="space-y-4">
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-[0.12em] text-slate-400">Full name</label>
+                <input
+                  value={userForm.name}
+                  onChange={(event) => setUserForm((state) => ({ ...state, name: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
+                  placeholder="Jordan Smith"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-[0.12em] text-slate-400">Email</label>
+                <input
+                  type="email"
+                  value={userForm.email}
+                  onChange={(event) => setUserForm((state) => ({ ...state, email: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
+                  placeholder="jordan@example.com"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-[0.12em] text-slate-400">Password</label>
+                <input
+                  type="password"
+                  value={userForm.password}
+                  onChange={(event) => setUserForm((state) => ({ ...state, password: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
+                  placeholder="Secure password"
+                  required
+                />
+              </div>
+
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-[0.12em] text-slate-400">Role</label>
+                <select
+                  value={userForm.role}
+                  onChange={(event) => setUserForm((state) => ({ ...state, role: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
+                >
+                  {ROLE_OPTIONS.map((role) => (
+                    <option key={role} value={role}>{role}</option>
+                  ))}
+                </select>
+              </div>
+
+              {userMessage ? <p className="text-sm text-emerald-300">{userMessage}</p> : null}
+              {userError ? <p className="text-sm text-red-300">{userError}</p> : null}
+
+              <button type="submit" className="rounded-xl bg-accent-600 px-4 py-3 text-sm font-medium text-white">
+                Create user
+              </button>
+            </form>
+
+            <div>
+              <h4 className="mb-3 text-sm uppercase tracking-[0.12em] text-slate-400">Existing users</h4>
+              <div className="space-y-3">
+                {users.length ? users.map((user) => (
+                  <div key={user.id} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
+                    <div className="flex items-center justify-between gap-3">
+                      <div>
+                        <p className="font-medium text-white">{user.name}</p>
+                        <p className="text-xs text-slate-400">{user.email}</p>
+                      </div>
+                      <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-300">
+                        {user.role}
+                      </span>
+                    </div>
+                  </div>
+                )) : (
+                  <p className="text-sm text-slate-400">No users yet.</p>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   )
 }
@@ -603,7 +719,7 @@ function AppLayout({ auth, logout, children }) {
           <div className="flex items-center gap-3">
             <div className="text-right text-sm text-slate-300">
               <p className="font-medium text-white">{auth.user?.name || 'Field technician'}</p>
-              <p className="text-xs text-slate-400">{auth.user?.email || 'Secure access'}</p>
+              <p className="text-xs text-slate-400">{auth.user?.email || 'Secure access'} · {auth.user?.role || 'user'}</p>
             </div>
             <button
               onClick={handleLogout}
@@ -642,6 +758,7 @@ function App() {
   const { auth, login, logout } = useAuthState()
   const [overview, setOverview] = useState(null)
   const [clients, setClients] = useState([])
+  const [users, setUsers] = useState([])
   const [installationTypes, setInstallationTypes] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
 
@@ -650,22 +767,29 @@ function App() {
 
     const loadData = async () => {
       try {
-        const [overviewData, clientsData, typesData] = await Promise.all([
+        const requests = [
           apiRequest('/overview'),
           apiRequest('/clients'),
           apiRequest('/types')
-        ])
+        ]
+
+        if (auth.user?.role === 'admin') {
+          requests.push(apiRequest('/users'))
+        }
+
+        const [overviewData, clientsData, typesData, usersData] = await Promise.all(requests)
 
         setOverview(overviewData)
         setClients(clientsData)
         setInstallationTypes(typesData)
+        setUsers(usersData || [])
       } catch (error) {
         console.error(error)
       }
     }
 
     loadData()
-  }, [auth.token])
+  }, [auth.token, auth.user?.role])
 
   if (!auth.token) {
     return <LoginPage onLogin={login} isSubmitting={isSubmitting} setIsSubmitting={setIsSubmitting} />
@@ -683,6 +807,8 @@ function App() {
     )
   )
 
+  const isAdmin = auth.user?.role === 'admin'
+
   return (
     <AppLayout auth={auth} logout={logout}>
       <Routes>
@@ -690,7 +816,16 @@ function App() {
         <Route path="/" element={<DashboardPage overview={overview} clients={clients} />} />
         <Route path="/clients" element={<ClientsPage clients={clients} setClients={setClients} installationTypes={installationTypes} />} />
         <Route path="/installations" element={<InstallationsPage installations={installations} installationTypes={installationTypes} />} />
-        <Route path="/admin" element={<AdminPage installationTypes={installationTypes} setInstallationTypes={setInstallationTypes} />} />
+        <Route
+          path="/admin"
+          element={
+            isAdmin ? (
+              <AdminPage installationTypes={installationTypes} setInstallationTypes={setInstallationTypes} users={users} setUsers={setUsers} authUser={auth.user} />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
       </Routes>
     </AppLayout>
   )

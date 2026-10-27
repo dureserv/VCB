@@ -9,6 +9,7 @@ import { fileURLToPath } from 'node:url'
 const app = express()
 const PORT = 4000
 const JWT_SECRET = 'fieldsafe-dev-secret'
+const ALLOWED_ROLES = ['admin', 'manager', 'technician', 'viewer']
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -246,7 +247,8 @@ function normalizeDatabase(rawData) {
 
   next.users = (next.users || []).map((user) => ({
     ...user,
-    password: user.password && user.password.startsWith('$2') ? user.password : bcrypt.hashSync(user.password || 'password123', 10)
+    password: user.password && user.password.startsWith('$2') ? user.password : bcrypt.hashSync(user.password || 'password123', 10),
+    role: ALLOWED_ROLES.includes(String(user.role || 'viewer').toLowerCase()) ? String(user.role).toLowerCase() : 'viewer'
   }))
 
   next.installationTypes = { ...defaultInstallationTypes, ...(next.installationTypes || {}) }
@@ -279,6 +281,14 @@ function authMiddleware(req, res, next) {
   }
 }
 
+function adminOnly(req, res, next) {
+  if (!req.user || req.user.role !== 'admin') {
+    return res.status(403).json({ message: 'Admin access required.' })
+  }
+
+  next()
+}
+
 app.use(cors())
 app.use(express.json({ limit: '5mb' }))
 
@@ -303,6 +313,54 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
   if (!user) return res.status(404).json({ message: 'User not found.' })
 
   return res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } })
+})
+
+app.get('/api/users', authMiddleware, adminOnly, (req, res) => {
+  const db = readDatabase()
+  return res.json(db.users.map(({ id, name, email, role }) => ({ id, name, email, role })))
+})
+
+app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
+  const { name = '', email = '', password = '', role = 'technician' } = req.body || {}
+  const db = readDatabase()
+
+  const cleanName = String(name).trim()
+  const cleanEmail = String(email).trim().toLowerCase()
+  const cleanPassword = String(password).trim()
+  const cleanRole = String(role).trim().toLowerCase()
+
+  if (!cleanName || !cleanEmail || !cleanPassword) {
+    return res.status(400).json({ message: 'Name, email, and password are required.' })
+  }
+
+  if (!ALLOWED_ROLES.includes(cleanRole)) {
+    return res.status(400).json({ message: `Role must be one of: ${ALLOWED_ROLES.join(', ')}` })
+  }
+
+  const exists = db.users.some((user) => user.email.toLowerCase() === cleanEmail)
+  if (exists) {
+    return res.status(409).json({ message: 'A user with that email already exists.' })
+  }
+
+  const newUser = {
+    id: `user-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`,
+    name: cleanName,
+    email: cleanEmail,
+    password: bcrypt.hashSync(cleanPassword, 10),
+    role: cleanRole
+  }
+
+  db.users.push(newUser)
+  writeDatabase(db)
+
+  return res.status(201).json({
+    user: {
+      id: newUser.id,
+      name: newUser.name,
+      email: newUser.email,
+      role: newUser.role
+    }
+  })
 })
 
 app.get('/api/overview', authMiddleware, (req, res) => {
@@ -337,7 +395,7 @@ app.get('/api/types', authMiddleware, (req, res) => {
   return res.json(db.installationTypes)
 })
 
-app.post('/api/types', authMiddleware, (req, res) => {
+app.post('/api/types', authMiddleware, adminOnly, (req, res) => {
   const { label, fields = '' } = req.body || {}
   const db = readDatabase()
 
@@ -368,3 +426,5 @@ app.post('/api/types', authMiddleware, (req, res) => {
 app.listen(PORT, () => {
   console.log(`FieldSafe API listening on http://localhost:${PORT}`)
 })
+
+export default app
