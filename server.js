@@ -10,6 +10,24 @@ const app = express()
 const PORT = 4000
 const JWT_SECRET = 'fieldsafe-dev-secret'
 const ALLOWED_ROLES = ['admin', 'manager', 'technician', 'viewer']
+const ROLE_PERMISSIONS = {
+  admin: {
+    pages: ['dashboard', 'clients', 'installations', 'admin'],
+    actions: ['create_user', 'create_type', 'reveal_code']
+  },
+  manager: {
+    pages: ['dashboard', 'clients', 'installations'],
+    actions: ['reveal_code']
+  },
+  technician: {
+    pages: ['dashboard', 'clients', 'installations'],
+    actions: ['reveal_code']
+  },
+  viewer: {
+    pages: ['dashboard'],
+    actions: []
+  }
+}
 
 const __filename = fileURLToPath(import.meta.url)
 const __dirname = path.dirname(__filename)
@@ -266,6 +284,10 @@ function issueToken(user) {
   return jwt.sign({ sub: user.id, email: user.email, name: user.name, role: user.role }, JWT_SECRET, { expiresIn: '8h' })
 }
 
+function hasPermission(role, permission) {
+  return (ROLE_PERMISSIONS[role]?.actions || []).includes(permission)
+}
+
 function authMiddleware(req, res, next) {
   const header = req.headers.authorization || ''
   const token = header.startsWith('Bearer ') ? header.slice(7) : null
@@ -281,12 +303,14 @@ function authMiddleware(req, res, next) {
   }
 }
 
-function adminOnly(req, res, next) {
-  if (!req.user || req.user.role !== 'admin') {
-    return res.status(403).json({ message: 'Admin access required.' })
-  }
+function requirePermission(permission) {
+  return (req, res, next) => {
+    if (!req.user || !hasPermission(req.user.role, permission)) {
+      return res.status(403).json({ message: `Permission required: ${permission}` })
+    }
 
-  next()
+    next()
+  }
 }
 
 app.use(cors())
@@ -315,12 +339,12 @@ app.get('/api/auth/me', authMiddleware, (req, res) => {
   return res.json({ user: { id: user.id, name: user.name, email: user.email, role: user.role } })
 })
 
-app.get('/api/users', authMiddleware, adminOnly, (req, res) => {
+app.get('/api/users', authMiddleware, requirePermission('create_user'), (req, res) => {
   const db = readDatabase()
   return res.json(db.users.map(({ id, name, email, role }) => ({ id, name, email, role })))
 })
 
-app.post('/api/users', authMiddleware, adminOnly, (req, res) => {
+app.post('/api/users', authMiddleware, requirePermission('create_user'), (req, res) => {
   const { name = '', email = '', password = '', role = 'technician' } = req.body || {}
   const db = readDatabase()
 
@@ -395,7 +419,7 @@ app.get('/api/types', authMiddleware, (req, res) => {
   return res.json(db.installationTypes)
 })
 
-app.post('/api/types', authMiddleware, adminOnly, (req, res) => {
+app.post('/api/types', authMiddleware, requirePermission('create_type'), (req, res) => {
   const { label, fields = '' } = req.body || {}
   const db = readDatabase()
 

@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { Link, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom'
 
 const API_BASE = '/api'
@@ -7,6 +7,25 @@ const DEFAULT_LOGIN = {
   password: 'password123'
 }
 const ROLE_OPTIONS = ['admin', 'manager', 'technician', 'viewer']
+const PAGE_PERMISSIONS = {
+  dashboard: ['admin', 'manager', 'technician', 'viewer'],
+  clients: ['admin', 'manager', 'technician'],
+  installations: ['admin', 'manager', 'technician'],
+  admin: ['admin']
+}
+const ACTION_PERMISSIONS = {
+  create_user: ['admin'],
+  create_type: ['admin'],
+  reveal_code: ['admin', 'manager', 'technician']
+}
+
+function hasPageAccess(role, page) {
+  return (PAGE_PERMISSIONS[page] || []).includes(role)
+}
+
+function canPerform(role, action) {
+  return (ACTION_PERMISSIONS[action] || []).includes(role)
+}
 
 async function apiRequest(path, options = {}) {
   const token = localStorage.getItem('fieldsafe_token')
@@ -63,17 +82,6 @@ function useAuthState() {
   }
 
   return { auth, login, logout }
-}
-
-function ProtectedRoute({ children }) {
-  const location = useLocation()
-  const { auth } = useAuthState()
-
-  if (!auth.token) {
-    return <Navigate to="/login" state={{ from: location.pathname }} replace />
-  }
-
-  return children
 }
 
 function formatDate(date) {
@@ -247,9 +255,10 @@ function DashboardPage({ overview, clients }) {
   )
 }
 
-function ClientsPage({ clients, setClients, installationTypes }) {
+function ClientsPage({ clients, setClients, installationTypes, role }) {
   const [selectedClientId, setSelectedClientId] = useState(clients[0]?.id || '')
   const selectedClient = clients.find((item) => item.id === selectedClientId) || clients[0]
+  const canCreateType = canPerform(role, 'create_type')
 
   useEffect(() => {
     if (clients.length && !selectedClientId) {
@@ -267,9 +276,11 @@ function ClientsPage({ clients, setClients, installationTypes }) {
             <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Portfolio</p>
             <h2 className="mt-2 text-2xl font-semibold text-white">Clients & sites</h2>
           </div>
-          <Link to="/admin" className="rounded-xl bg-accent-600 px-3 py-2 text-sm font-medium text-white">
-            Manage inventory
-          </Link>
+          {canCreateType ? (
+            <Link to="/admin" className="rounded-xl bg-accent-600 px-3 py-2 text-sm font-medium text-white">
+              Manage inventory
+            </Link>
+          ) : null}
         </div>
       </div>
 
@@ -369,9 +380,10 @@ function ClientsPage({ clients, setClients, installationTypes }) {
   )
 }
 
-function InstallationsPage({ installations, installationTypes }) {
+function InstallationsPage({ installations, installationTypes, role }) {
   const [selectedInstallationId, setSelectedInstallationId] = useState(installations[0]?.id || '')
   const [revealed, setRevealed] = useState({})
+  const canReveal = canPerform(role, 'reveal_code')
 
   useEffect(() => {
     if (installations.length && !selectedInstallationId) {
@@ -443,7 +455,7 @@ function InstallationsPage({ installations, installationTypes }) {
               <div className="mb-4 flex items-center justify-between">
                 <h3 className="text-lg font-semibold text-white">Code vault</h3>
                 <span className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-[0.14em] text-slate-300">
-                  Masked by default
+                  {canReveal ? 'Masked by default' : 'Read-only access'}
                 </span>
               </div>
 
@@ -452,15 +464,17 @@ function InstallationsPage({ installations, installationTypes }) {
                   <div key={code.label} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs uppercase tracking-[0.12em] text-slate-400">{code.label}</p>
-                      <button
-                        className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-200"
-                        onClick={() => setRevealed((state) => ({ ...state, [code.label]: !state[code.label] }))}
-                      >
-                        {revealed[code.label] ? 'Hide' : 'Reveal'}
-                      </button>
+                      {canReveal ? (
+                        <button
+                          className="rounded-md border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-200"
+                          onClick={() => setRevealed((state) => ({ ...state, [code.label]: !state[code.label] }))}
+                        >
+                          {revealed[code.label] ? 'Hide' : 'Reveal'}
+                        </button>
+                      ) : null}
                     </div>
                     <p className="mt-3 font-mono text-xl tracking-[0.28em] text-white">
-                      {revealed[code.label] ? code.value : maskCode(code.value)}
+                      {canReveal && revealed[code.label] ? code.value : maskCode(code.value)}
                     </p>
                   </div>
                 ))}
@@ -492,11 +506,18 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
   const [userMessage, setUserMessage] = useState('')
   const [error, setError] = useState('')
   const [userError, setUserError] = useState('')
+  const canCreateType = canPerform(authUser?.role, 'create_type')
+  const canCreateUser = canPerform(authUser?.role, 'create_user')
 
   const handleSubmit = async (event) => {
     event.preventDefault()
     setError('')
     setMessage('')
+
+    if (!canCreateType) {
+      setError('You do not have permission to create installation types.')
+      return
+    }
 
     try {
       const response = await apiRequest('/types', {
@@ -520,6 +541,11 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
     setUserError('')
     setUserMessage('')
 
+    if (!canCreateUser) {
+      setUserError('You do not have permission to create users.')
+      return
+    }
+
     try {
       const response = await apiRequest('/users', {
         method: 'POST',
@@ -539,8 +565,6 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
     }
   }
 
-  const isAdmin = authUser?.role === 'admin'
-
   return (
     <div className="space-y-6">
       <div className="panel p-5">
@@ -558,6 +582,7 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
               className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
               placeholder="Access Control"
               required
+              disabled={!canCreateType}
             />
           </div>
 
@@ -568,13 +593,14 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
               onChange={(event) => setForm((state) => ({ ...state, fields: event.target.value }))}
               className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
               placeholder="Door Count, Readers, Credentials"
+              disabled={!canCreateType}
             />
           </div>
 
           {message ? <p className="text-sm text-emerald-300">{message}</p> : null}
           {error ? <p className="text-sm text-red-300">{error}</p> : null}
 
-          <button type="submit" className="rounded-xl bg-accent-600 px-4 py-3 text-sm font-medium text-white">
+          <button type="submit" className="rounded-xl bg-accent-600 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60" disabled={!canCreateType}>
             Save new type
           </button>
         </form>
@@ -592,7 +618,7 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
         </div>
       </div>
 
-      {isAdmin ? (
+      {canCreateUser ? (
         <div className="panel p-5">
           <h3 className="mb-4 text-lg font-semibold text-white">User management</h3>
 
@@ -676,13 +702,18 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
             </div>
           </div>
         </div>
-      ) : null}
+      ) : (
+        <div className="panel p-5 text-sm text-slate-300">
+          You do not have permission to manage users.
+        </div>
+      )}
     </div>
   )
 }
 
 function AppLayout({ auth, logout, children }) {
   const navigate = useNavigate()
+  const role = auth.user?.role || 'viewer'
 
   const handleLogout = () => {
     logout()
@@ -690,11 +721,11 @@ function AppLayout({ auth, logout, children }) {
   }
 
   const navItems = [
-    { label: 'Dashboard', to: '/' },
-    { label: 'Clients', to: '/clients' },
-    { label: 'Installations', to: '/installations' },
-    { label: 'Admin', to: '/admin' }
-  ]
+    { label: 'Dashboard', to: '/', page: 'dashboard' },
+    { label: 'Clients', to: '/clients', page: 'clients' },
+    { label: 'Installations', to: '/installations', page: 'installations' },
+    { label: 'Admin', to: '/admin', page: 'admin' }
+  ].filter((item) => hasPageAccess(role, item.page))
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100">
@@ -761,6 +792,7 @@ function App() {
   const [users, setUsers] = useState([])
   const [installationTypes, setInstallationTypes] = useState({})
   const [isSubmitting, setIsSubmitting] = useState(false)
+  const role = auth.user?.role || 'viewer'
 
   useEffect(() => {
     if (!auth.token) return
@@ -773,7 +805,7 @@ function App() {
           apiRequest('/types')
         ]
 
-        if (auth.user?.role === 'admin') {
+        if (canPerform(role, 'create_user')) {
           requests.push(apiRequest('/users'))
         }
 
@@ -789,7 +821,7 @@ function App() {
     }
 
     loadData()
-  }, [auth.token, auth.user?.role])
+  }, [auth.token, role])
 
   if (!auth.token) {
     return <LoginPage onLogin={login} isSubmitting={isSubmitting} setIsSubmitting={setIsSubmitting} />
@@ -807,19 +839,38 @@ function App() {
     )
   )
 
-  const isAdmin = auth.user?.role === 'admin'
-
   return (
     <AppLayout auth={auth} logout={logout}>
       <Routes>
         <Route path="/login" element={<Navigate to="/" replace />} />
-        <Route path="/" element={<DashboardPage overview={overview} clients={clients} />} />
-        <Route path="/clients" element={<ClientsPage clients={clients} setClients={setClients} installationTypes={installationTypes} />} />
-        <Route path="/installations" element={<InstallationsPage installations={installations} installationTypes={installationTypes} />} />
+        <Route
+          path="/"
+          element={hasPageAccess(role, 'dashboard') ? <DashboardPage overview={overview} clients={clients} /> : <Navigate to="/" replace />}
+        />
+        <Route
+          path="/clients"
+          element={
+            hasPageAccess(role, 'clients') ? (
+              <ClientsPage clients={clients} setClients={setClients} installationTypes={installationTypes} role={role} />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
+        <Route
+          path="/installations"
+          element={
+            hasPageAccess(role, 'installations') ? (
+              <InstallationsPage installations={installations} installationTypes={installationTypes} role={role} />
+            ) : (
+              <Navigate to="/" replace />
+            )
+          }
+        />
         <Route
           path="/admin"
           element={
-            isAdmin ? (
+            hasPageAccess(role, 'admin') ? (
               <AdminPage installationTypes={installationTypes} setInstallationTypes={setInstallationTypes} users={users} setUsers={setUsers} authUser={auth.user} />
             ) : (
               <Navigate to="/" replace />
