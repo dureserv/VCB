@@ -7,6 +7,7 @@ const DEFAULT_LOGIN = {
   password: 'password123'
 }
 const ROLE_OPTIONS = ['admin', 'manager', 'technician', 'viewer']
+const USER_STATUS_OPTIONS = ['active', 'inactive']
 const PAGE_PERMISSIONS = {
   dashboard: ['admin', 'manager', 'technician', 'viewer'],
   clients: ['admin', 'manager', 'technician'],
@@ -501,7 +502,7 @@ function InstallationsPage({ installations, installationTypes, role }) {
 
 function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, authUser }) {
   const [form, setForm] = useState({ label: '', fields: '' })
-  const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'technician' })
+  const [userForm, setUserForm] = useState({ name: '', email: '', password: '', role: 'technician', status: 'active' })
   const [editingUserId, setEditingUserId] = useState(null)
   const [message, setMessage] = useState('')
   const [userMessage, setUserMessage] = useState('')
@@ -551,7 +552,8 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
       const payload = {
         name: userForm.name,
         email: userForm.email,
-        role: userForm.role
+        role: userForm.role,
+        status: userForm.status
       }
 
       if (userForm.password) {
@@ -579,7 +581,7 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
         setUserMessage(`User created successfully with the ${response.user.role} role.`)
       }
 
-      setUserForm({ name: '', email: '', password: '', role: 'technician' })
+      setUserForm({ name: '', email: '', password: '', role: 'technician', status: 'active' })
       setEditingUserId(null)
     } catch (err) {
       setUserError(err.message)
@@ -607,7 +609,7 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
       setUsers((state) => state.filter((user) => user.id !== userId))
       if (editingUserId === userId) {
         setEditingUserId(null)
-        setUserForm({ name: '', email: '', password: '', role: 'technician' })
+        setUserForm({ name: '', email: '', password: '', role: 'technician', status: 'active' })
       }
       setUserMessage('User deleted successfully.')
     } catch (err) {
@@ -621,7 +623,8 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
       name: user.name,
       email: user.email,
       password: '',
-      role: user.role
+      role: user.role,
+      status: user.status || 'active'
     })
     setUserError('')
     setUserMessage('')
@@ -629,7 +632,7 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
 
   const cancelEditUser = () => {
     setEditingUserId(null)
-    setUserForm({ name: '', email: '', password: '', role: 'technician' })
+    setUserForm({ name: '', email: '', password: '', role: 'technician', status: 'active' })
   }
 
   return (
@@ -738,6 +741,19 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
                 </select>
               </div>
 
+              <div>
+                <label className="mb-1 block text-xs uppercase tracking-[0.12em] text-slate-400">Status</label>
+                <select
+                  value={userForm.status}
+                  onChange={(event) => setUserForm((state) => ({ ...state, status: event.target.value }))}
+                  className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
+                >
+                  {USER_STATUS_OPTIONS.map((status) => (
+                    <option key={status} value={status}>{status}</option>
+                  ))}
+                </select>
+              </div>
+
               <div className="flex gap-3">
                 <button type="submit" className="rounded-xl bg-accent-600 px-4 py-3 text-sm font-medium text-white">
                   {editingUserId ? 'Save changes' : 'Create user'}
@@ -763,17 +779,26 @@ function AdminPage({ installationTypes, setInstallationTypes, users, setUsers, a
                         <p className="font-medium text-white">{user.name}</p>
                         <p className="text-xs text-slate-400">{user.email}</p>
                       </div>
+                      <span className={`rounded-full border px-2 py-1 text-[10px] uppercase tracking-[0.12em] ${
+                        user.status === 'active'
+                          ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                          : 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                      }`}>
+                        {user.status || 'active'}
+                      </span>
+                    </div>
+                    <div className="mt-3 flex items-center justify-between gap-2">
                       <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-300">
                         {user.role}
                       </span>
-                    </div>
-                    <div className="mt-3 flex gap-2">
-                      <button type="button" onClick={() => startEditUser(user)} className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-200">
-                        Edit
-                      </button>
-                      <button type="button" onClick={() => handleDeleteUser(user.id)} className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-red-200">
-                        Delete
-                      </button>
+                      <div className="flex gap-2">
+                        <button type="button" onClick={() => startEditUser(user)} className="rounded-lg border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-200">
+                          Edit
+                        </button>
+                        <button type="button" onClick={() => handleDeleteUser(user.id)} className="rounded-lg border border-red-500/30 bg-red-500/10 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-red-200">
+                          Delete
+                        </button>
+                      </div>
                     </div>
                   </div>
                 )) : (
@@ -831,7 +856,7 @@ function AppLayout({ auth, logout, children }) {
           <div className="flex items-center gap-3">
             <div className="text-right text-sm text-slate-300">
               <p className="font-medium text-white">{auth.user?.name || 'Field technician'}</p>
-              <p className="text-xs text-slate-400">{auth.user?.email || 'Secure access'} · {auth.user?.role || 'user'}</p>
+              <p className="text-xs text-slate-400">{auth.user?.email || 'Secure access'} · {auth.user?.role || 'user'} · {auth.user?.status || 'active'}</p>
             </div>
             <button
               onClick={handleLogout}
