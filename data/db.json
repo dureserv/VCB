@@ -6,6 +6,13 @@
       "email": "admin@fieldsafe.local",
       "password": "$2a$10$vqdgtjG6OZdFVijwiSujJe0NpGaMS6kTG4xTHVitkSJ7uOhGKEHBi",
       "role": "admin"
+    },
+    {
+      "id": "user-1793105704971-778821",
+      "name": "Fred",
+      "email": "fred@fieldsafe.local",
+      "password": "$2a$10$yn.CAK6IldcXDDMCxGInUuJYGUPfxmCccp3myzbp.Ms3AfqpRgcBO",
+      "role": "manager"
     }
   ],
   "installationTypes": {
@@ -286,6 +293,12 @@
       "id": "client-1793102892301-fa3e7a",
       "name": "Van Cauter",
       "contact": "Gert",
+      "sites": []
+    },
+    {
+      "id": "client-1793105603964-0004aa",
+      "name": "Dok Noord",
+      "contact": "Tania",
       "sites": []
     }
   ]
