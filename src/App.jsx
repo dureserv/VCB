@@ -259,12 +259,17 @@ function DashboardPage({ overview, clients }) {
 
 function ClientsPage({ clients, setClients, installationTypes, role }) {
   const [selectedClientId, setSelectedClientId] = useState(clients[0]?.id || '')
+  const [editingClientId, setEditingClientId] = useState(null)
   const [clientForm, setClientForm] = useState({ name: '', contact: '' })
+  const [siteForm, setSiteForm] = useState({ name: '', address: '', status: 'Active' })
   const [clientMessage, setClientMessage] = useState('')
   const [clientError, setClientError] = useState('')
+  const [siteMessage, setSiteMessage] = useState('')
+  const [siteError, setSiteError] = useState('')
   const [isSavingClient, setIsSavingClient] = useState(false)
+  const [isSavingSite, setIsSavingSite] = useState(false)
   const selectedClient = clients.find((item) => item.id === selectedClientId) || clients[0]
-  const canCreateClient = canPerform(role, 'create_client')
+  const canManageClients = canPerform(role, 'create_client')
 
   useEffect(() => {
     if (clients.length && !selectedClientId) {
@@ -272,13 +277,26 @@ function ClientsPage({ clients, setClients, installationTypes, role }) {
     }
   }, [clients, selectedClientId])
 
-  const handleAddClient = async (event) => {
+  useEffect(() => {
+    if (!selectedClient) return
+    if (!editingClientId) {
+      setClientForm({ name: '', contact: '' })
+    }
+    setSiteForm({ name: '', address: '', status: 'Active' })
+  }, [selectedClientId, editingClientId, selectedClient])
+
+  const resetClientForm = () => {
+    setEditingClientId(null)
+    setClientForm({ name: '', contact: '' })
+  }
+
+  const handleClientSubmit = async (event) => {
     event.preventDefault()
     setClientError('')
     setClientMessage('')
 
-    if (!canCreateClient) {
-      setClientError('You do not have permission to add clients.')
+    if (!canManageClients) {
+      setClientError('You do not have permission to manage clients.')
       return
     }
 
@@ -293,20 +311,107 @@ function ClientsPage({ clients, setClients, installationTypes, role }) {
     setIsSavingClient(true)
 
     try {
-      const response = await apiRequest('/clients', {
-        method: 'POST',
-        body: JSON.stringify({ name, contact })
-      })
+      const response = editingClientId
+        ? await apiRequest(`/clients/${editingClientId}`, {
+            method: 'PATCH',
+            body: JSON.stringify({ name, contact })
+          })
+        : await apiRequest('/clients', {
+            method: 'POST',
+            body: JSON.stringify({ name, contact })
+          })
 
-      setClients((state) => [response.client, ...state])
-      setSelectedClientId(response.client.id)
+      if (editingClientId) {
+        setClients((state) => state.map((client) => client.id === editingClientId ? response.client : client))
+        setClientMessage('Client updated successfully.')
+      } else {
+        const createdClient = response.client
+        setClients((state) => [createdClient, ...state])
+        setSelectedClientId(createdClient.id)
+        setClientMessage('Client added successfully.')
+      }
+
+      setEditingClientId(null)
       setClientForm({ name: '', contact: '' })
-      setClientMessage('Client added successfully.')
     } catch (err) {
       setClientError(err.message)
     } finally {
       setIsSavingClient(false)
     }
+  }
+
+  const handleDeleteClient = async (clientId) => {
+    if (!canManageClients) {
+      setClientError('You do not have permission to manage clients.')
+      return
+    }
+
+    const target = clients.find((client) => client.id === clientId)
+    if (!target) return
+
+    if (!window.confirm(`Delete client ${target.name}?`)) {
+      return
+    }
+
+    try {
+      await apiRequest(`/clients/${clientId}`, {
+        method: 'DELETE'
+      })
+
+      const nextClients = clients.filter((client) => client.id !== clientId)
+      setClients(nextClients)
+      setSelectedClientId(nextClients[0]?.id || '')
+      setEditingClientId(null)
+      setClientForm({ name: '', contact: '' })
+      setClientMessage('Client deleted successfully.')
+    } catch (err) {
+      setClientError(err.message)
+    }
+  }
+
+  const handleAddSite = async (event) => {
+    event.preventDefault()
+    setSiteError('')
+    setSiteMessage('')
+
+    if (!selectedClient || !canManageClients) {
+      setSiteError('You do not have permission to add sites.')
+      return
+    }
+
+    const name = siteForm.name.trim()
+    const address = siteForm.address.trim()
+    const status = siteForm.status.trim() || 'Active'
+
+    if (!name || !address) {
+      setSiteError('Site name and address are required.')
+      return
+    }
+
+    setIsSavingSite(true)
+
+    try {
+      const response = await apiRequest(`/clients/${selectedClient.id}/sites`, {
+        method: 'POST',
+        body: JSON.stringify({ name, address, status })
+      })
+
+      setClients((state) => state.map((client) => client.id === selectedClient.id ? { ...client, sites: [...(client.sites || []), response.site] } : client))
+      setSiteForm({ name: '', address: '', status: 'Active' })
+      setSiteMessage('Site added successfully.')
+    } catch (err) {
+      setSiteError(err.message)
+    } finally {
+      setIsSavingSite(false)
+    }
+  }
+
+  const startEditClient = () => {
+    if (!selectedClient) return
+    setEditingClientId(selectedClient.id)
+    setClientForm({ name: selectedClient.name, contact: selectedClient.contact || '' })
+    setClientError('')
+    setClientMessage('')
   }
 
   if (!clients.length) return <Loader label="Loading clients" />
@@ -319,7 +424,7 @@ function ClientsPage({ clients, setClients, installationTypes, role }) {
             <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Portfolio</p>
             <h2 className="mt-2 text-2xl font-semibold text-white">Clients & sites</h2>
           </div>
-          {canCreateClient ? (
+          {canManageClients ? (
             <span className="rounded-xl border border-emerald-500/30 bg-emerald-500/10 px-3 py-2 text-sm font-medium text-emerald-200">
               Client access enabled
             </span>
@@ -327,12 +432,12 @@ function ClientsPage({ clients, setClients, installationTypes, role }) {
         </div>
       </div>
 
-      {canCreateClient ? (
-        <form onSubmit={handleAddClient} className="panel space-y-4 p-5">
+      {canManageClients ? (
+        <form onSubmit={handleClientSubmit} className="panel space-y-4 p-5">
           <div className="flex items-center justify-between gap-3">
             <div>
-              <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Quick add</p>
-              <h3 className="mt-2 text-xl font-semibold text-white">Add a new client</h3>
+              <p className="text-xs uppercase tracking-[0.16em] text-slate-400">{editingClientId ? 'Edit client' : 'Quick add'}</p>
+              <h3 className="mt-2 text-xl font-semibold text-white">{editingClientId ? 'Update client record' : 'Add a new client'}</h3>
             </div>
           </div>
 
@@ -357,13 +462,24 @@ function ClientsPage({ clients, setClients, installationTypes, role }) {
               />
             </div>
 
-            <button
-              type="submit"
-              disabled={isSavingClient}
-              className="self-end rounded-xl bg-accent-600 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
-            >
-              {isSavingClient ? 'Saving...' : 'Add client'}
-            </button>
+            <div className="flex items-end gap-2">
+              <button
+                type="submit"
+                disabled={isSavingClient}
+                className="rounded-xl bg-accent-600 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {isSavingClient ? (editingClientId ? 'Saving...' : 'Adding...') : (editingClientId ? 'Save changes' : 'Add client')}
+              </button>
+              {editingClientId ? (
+                <button
+                  type="button"
+                  onClick={resetClientForm}
+                  className="rounded-xl border border-slate-700 bg-slate-800 px-4 py-3 text-sm font-medium text-white"
+                >
+                  Cancel
+                </button>
+              ) : null}
+            </div>
           </div>
 
           {clientMessage ? <p className="text-sm text-emerald-300">{clientMessage}</p> : null}
@@ -403,16 +519,93 @@ function ClientsPage({ clients, setClients, installationTypes, role }) {
           {selectedClient ? (
             <>
               <div className="panel p-5">
-                <div className="flex items-center justify-between">
+                <div className="flex items-center justify-between gap-3">
                   <div>
                     <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Client</p>
                     <h3 className="mt-1 text-2xl font-semibold text-white">{selectedClient.name}</h3>
                   </div>
-                  <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-300">
-                    Contact: {selectedClient.contact}
-                  </span>
+                  <div className="flex items-center gap-2">
+                    <span className="rounded-full border border-slate-700 bg-slate-800 px-2 py-1 text-[10px] uppercase tracking-[0.12em] text-slate-300">
+                      Contact: {selectedClient.contact}
+                    </span>
+                    {canManageClients ? (
+                      <>
+                        <button
+                          type="button"
+                          onClick={startEditClient}
+                          className="rounded-xl border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-100"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeleteClient(selectedClient.id)}
+                          className="rounded-xl border border-red-500/30 bg-red-500/10 px-3 py-2 text-sm text-red-200"
+                        >
+                          Delete
+                        </button>
+                      </>
+                    ) : null}
+                  </div>
                 </div>
               </div>
+
+              {canManageClients ? (
+                <form onSubmit={handleAddSite} className="panel space-y-4 p-5">
+                  <div>
+                    <p className="text-xs uppercase tracking-[0.16em] text-slate-400">Add site</p>
+                    <h4 className="mt-2 text-xl font-semibold text-white">Create a site for {selectedClient.name}</h4>
+                  </div>
+
+                  <div className="grid gap-4 md:grid-cols-[1.1fr_1.1fr_0.6fr_auto]">
+                    <div>
+                      <label className="mb-1 block text-xs uppercase tracking-[0.12em] text-slate-400">Site name</label>
+                      <input
+                        value={siteForm.name}
+                        onChange={(event) => setSiteForm((state) => ({ ...state, name: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
+                        placeholder="North Tower"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-xs uppercase tracking-[0.12em] text-slate-400">Address</label>
+                      <input
+                        value={siteForm.address}
+                        onChange={(event) => setSiteForm((state) => ({ ...state, address: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
+                        placeholder="1100 Main St, Seattle"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="mb-1 block text-xs uppercase tracking-[0.12em] text-slate-400">Status</label>
+                      <select
+                        value={siteForm.status}
+                        onChange={(event) => setSiteForm((state) => ({ ...state, status: event.target.value }))}
+                        className="w-full rounded-xl border border-slate-700 bg-slate-900 px-3 py-3 text-white focus:border-accent-500"
+                      >
+                        {['Active', 'Monitoring', 'Inactive'].map((status) => (
+                          <option key={status} value={status}>{status}</option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="flex items-end">
+                      <button
+                        type="submit"
+                        disabled={isSavingSite}
+                        className="rounded-xl bg-accent-600 px-4 py-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-60"
+                      >
+                        {isSavingSite ? 'Saving...' : 'Add site'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {siteMessage ? <p className="text-sm text-emerald-300">{siteMessage}</p> : null}
+                  {siteError ? <p className="text-sm text-red-300">{siteError}</p> : null}
+                </form>
+              ) : null}
 
               {selectedClient.sites.map((site) => (
                 <div key={site.id} className="panel p-5">
@@ -547,7 +740,7 @@ function InstallationsPage({ installations, installationTypes, role }) {
               </div>
 
               <div className="grid gap-3 md:grid-cols-2">
-                [{ label: 'Installer Code', value: selected.installerCode }, { label: 'Master Code', value: selected.masterCode }].map((code) => (
+                {[{ label: 'Installer Code', value: selected.installerCode }, { label: 'Master Code', value: selected.masterCode }].map((code) => (
                   <div key={code.label} className="rounded-xl border border-slate-800 bg-slate-950/40 p-3">
                     <div className="flex items-center justify-between gap-2">
                       <p className="text-xs uppercase tracking-[0.12em] text-slate-400">{code.label}</p>
